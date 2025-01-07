@@ -17,6 +17,7 @@ class MSPOffboardControllerNode : public rclcpp::Node
 public:
   explicit MSPOffboardControllerNode() : Node("MSPOffboardController")
   {
+	RCLCPP_INFO(this->get_logger(), "Offboard controller started");
 	rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
 	auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
 
@@ -25,7 +26,16 @@ public:
 	message_publisher_ = this->create_publisher<px4_msgs::msg::LogMessage>(MSP_LOG_PUB, qos);
 
 	status_subscription_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
-		MSP_STATUS_SUB, qos, [this](const px4_msgs::msg::VehicleStatus::UniquePtr msg) { nav_state = msg->nav_state; });
+		MSP_STATUS_SUB, qos, [this](const px4_msgs::msg::VehicleStatus::UniquePtr msg) {
+		  // if offboard left externally, switch state to idle
+		  if (nav_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
+			  msg->nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
+		  {
+			log_message("[msp] Offboard stopped externally", MAV_SEVERITY_NOTICE);
+			state_ = State::idle;
+		  }
+		  nav_state = msg->nav_state;
+		});
 
 	local_pos_subscription_ = this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
 		MSP_POS_SUB, qos, [this](const px4_msgs::msg::VehicleLocalPosition::UniquePtr msg) {
@@ -51,6 +61,7 @@ public:
 			  else
 				target_pos.z = current_state.pos.z;
 
+			 // current_plan = planner_.createCirclePathPlan(current_state, target_pos, 0.5f, 2.5f, 3);
 			  current_plan = planner_.createOptimizedDirectPathPlan(current_state, target_pos, MAX_VELOCITY);
 			  state_ = State::offboard_requested;
 			  break;
@@ -130,7 +141,7 @@ private:
 		executor_.generate(current_segment);
 		start_us = this->get_clock()->now().nanoseconds() / 1000L;
 		state_ = State::execute_segment;
-		RCLCPP_INFO(this->get_logger(), "Next segment execution started.");
+		// RCLCPP_INFO(this->get_logger(), "Next segment execution started.");
 		break;
 
 	  case State::execute_segment:
@@ -205,9 +216,8 @@ private:
 	auto message = px4_msgs::msg::LogMessage();
 	std::copy_n(msg.begin(), std::min(msg.size(), message.text.size()), message.text.begin());
 	message.set__severity(severity);
-	message.timestamp = this->get_clock()->now().nanoseconds() / 1000;
 	message_publisher_->publish(message);
-	RCLCPP_INFO(this->get_logger(),"%s",msg.c_str());
+	RCLCPP_INFO(this->get_logger(), "%s", msg.c_str());
   }
 
   rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_pos_subscription_;
