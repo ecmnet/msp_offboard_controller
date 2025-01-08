@@ -83,6 +83,12 @@ public:
      z = std::numeric_limits<double>::quiet_NaN();
   }
 
+  inline void setTo(Vec3 rhs) {
+     x = rhs.x;
+     y = rhs.y;
+     z = rhs.z;
+  }
+
   inline void clear(void) {
      x = 0; y = 0; z = 0;
   }

@@ -29,7 +29,8 @@ public:
 		MSP_STATUS_SUB, qos, [this](const px4_msgs::msg::VehicleStatus::UniquePtr msg) {
 		  // if offboard left externally, switch state to idle
 		  if (nav_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
-			  msg->nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
+			  msg->nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
+			  state_ == State::execute_segment)
 		  {
 			log_message("[msp] Offboard stopped externally", MAV_SEVERITY_NOTICE);
 			state_ = State::idle;
@@ -61,8 +62,9 @@ public:
 			  else
 				target_pos.z = current_state.pos.z;
 
-			 // current_plan = planner_.createCirclePathPlan(current_state, target_pos, 0.5f, 2.5f, 3);
-			  current_plan = planner_.createOptimizedDirectPathPlan(current_state, target_pos, MAX_VELOCITY);
+			  //current_plan = planner_.createCirclePathPlan(current_state, target_pos, 1.0f, 2.5f, 3);
+			  current_plan = planner_.createOptimizedDirectPathPlan(current_state, msp::StateTriplet(target_pos), MAX_VELOCITY);
+			  std::cout << current_plan << std::endl;
 			  state_ = State::offboard_requested;
 			  break;
 
@@ -136,8 +138,7 @@ private:
 		  state_ = State::target_reached;
 		  return;
 		}
-		current_segment = current_plan.front();
-		current_plan.pop();
+		current_segment = current_plan.next();
 		executor_.generate(current_segment);
 		start_us = this->get_clock()->now().nanoseconds() / 1000L;
 		state_ = State::execute_segment;
@@ -250,7 +251,7 @@ private:
   msp::StateTriplet current_setpoint = msp::StateTriplet();
 
   // Current plan: A vector of PlanItems
-  std::queue<msp::PlanItem> current_plan;
+  msp::MSPTrajectory current_plan;
 
   // Current segment
   msp::PlanItem current_segment;

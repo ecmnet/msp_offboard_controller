@@ -42,11 +42,11 @@ public:
     this->initialState.set(initialState);
   };
 
-  PlanItem(StateTriplet initialState, Vec3 target_pos, double estimated_time_s,
+  PlanItem(StateTriplet initialState, StateTriplet targetState, double estimated_time_s,
            PlanItem::Type type = PlanItem::TYPE_POS_VEL_ACC)
   {
     this->initialState.set(initialState);
-    this->targetState = StateTriplet(target_pos);
+    this->targetState = targetState;
     this->estimated_time_s = estimated_time_s;
     this->planning_type = type;
   };
