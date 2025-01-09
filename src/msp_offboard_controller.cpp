@@ -61,9 +61,10 @@ public:
 				target_pos.z = msg->param3;
 			  else
 				target_pos.z = current_state.pos.z;
-
-			  //current_plan = planner_.createCirclePathPlan(current_state, target_pos, 1.0f, 2.5f, 3);
-			  current_plan = planner_.createOptimizedDirectPathPlan(current_state, msp::StateTriplet(target_pos), MAX_VELOCITY);
+			  current_plan = msp::MSPTrajectory();
+			  current_plan.addAll(
+				  planner_.createOptimizedDirectPathPlan(current_state, target_pos, MAX_VELOCITY,0));
+			  current_plan.addAll(planner_.createCirclePathPlan(current_plan.getLastState(), 1.0f, 2.5f, 1));
 			  std::cout << current_plan << std::endl;
 			  state_ = State::offboard_requested;
 			  break;
@@ -138,7 +139,7 @@ private:
 		  state_ = State::target_reached;
 		  return;
 		}
-		current_segment = current_plan.next();
+		current_segment = current_plan.next(current_state);
 		executor_.generate(current_segment);
 		start_us = this->get_clock()->now().nanoseconds() / 1000L;
 		state_ = State::execute_segment;

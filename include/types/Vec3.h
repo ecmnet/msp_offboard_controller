@@ -208,7 +208,12 @@ public:
     
     };
 
+    inline bool isFinite() const {
+        return std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
+}
+
 }; 
+
 
 // Some operator overloading:
 inline Vec3 operator*(const double lhs, const Vec3 rhs)

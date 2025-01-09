@@ -19,12 +19,19 @@ public:
     }
   }
 
-  inline PlanItem next(void)
+  inline StateTriplet getLastState() {
+    return this->back().targetState;
+  }
+
+  inline PlanItem next(StateTriplet replace_initial_state)
   {
     PlanItem i = this->front();
+    i.initialState.set(replace_initial_state);
     this->pop();
     return i;
   }
+
+  double total_costs = 0;
   
 };
 
