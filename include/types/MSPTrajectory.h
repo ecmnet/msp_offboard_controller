@@ -20,13 +20,21 @@ public:
   }
 
   inline StateTriplet getLastState() {
-    return this->back().targetState;
+    PlanItem item = this->back();
+    return item.targetState;
   }
 
   inline PlanItem next(StateTriplet replace_initial_state)
   {
     PlanItem i = this->front();
     i.initialState.set(replace_initial_state);
+    this->pop();
+    return i;
+  }
+
+  inline PlanItem next()
+  {
+    PlanItem i = this->front();
     this->pop();
     return i;
   }

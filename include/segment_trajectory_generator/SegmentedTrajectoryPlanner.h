@@ -9,7 +9,7 @@
 #define MIN_VELOCITY 0.1f
 #define MAX_VELOCITY 1.0f
 #define ACCELERATION_PHASE_SECS 2.5f
-#define DECELERATION_PHASE_SECS 2.0f
+#define DECELERATION_PHASE_SECS 2.5f
 
 namespace msp
 {

@@ -1,7 +1,7 @@
 
 #define OFFBOARD_RATE 25
 
-#define MIN_YAW_FOLLOW_VELOCITY 0.10f
+#define MIN_YAW_FOLLOW_VELOCITY 0.30f
 
 #define MSG_PREFIX "/msp"
 

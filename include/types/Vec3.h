@@ -112,17 +112,17 @@ public:
     return sqrt(GetNorm2SquaredXY());
   };
 
-  inline double getXYAngle(const Vec3 rhs)
+  inline double getXYAngle(const Vec3 rhs) const
   {
     return getXYAngle(x - rhs.x, y - rhs.y);
   }
 
-  inline double getXYAngle()
+  inline double getXYAngle() const
   {
     return getXYAngle(x, y);
   }
 
-  inline double getXYAngle(const float dx, const float dy)
+  inline double getXYAngle(const float dx, const float dy) const
   {
     if (dx == 0 && dy >= 0)
       return M_PI_2;
@@ -140,7 +140,7 @@ public:
   // 	 return a > M_PI ? - (M_PI - a ) : a;
   //   }
 
-  inline Vec3 scale(const float scale) {
+  inline Vec3 scale(const double scale) {
     return Vec3( x * scale, y * scale, z * scale);
   }
 
@@ -230,7 +230,7 @@ inline Vec3 operator/(const Vec3 lhs, const double rhs)
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Vec3& t) {
-    os << "(" << t.x << "," << t.y << "," << t.z << ")";
+    os << "(" << t.x << "," << t.y << "," << t.z << ") XY: " << ( 180 / M_PI * t.getXYAngle() ) << "°";
     return os;
 };
 

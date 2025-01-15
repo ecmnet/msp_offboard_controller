@@ -11,9 +11,9 @@ float MSPRapidTrajectoryGenerator::generate(PlanItem item)
 
 void MSPRapidTrajectoryGenerator::getSetpointAt(double tf, StateTriplet& triplet)
 {
-  triplet.pos = this->GetPosition(tf);
-  triplet.vel = this->GetVelocity(tf);
-  triplet.acc = this->GetAcceleration(tf);
+  triplet.pos.setTo(this->GetPosition(tf));
+  triplet.vel.setTo(this->GetVelocity(tf));
+  triplet.acc.setTo(this->GetAcceleration(tf));
 }
 
 void MSPRapidTrajectoryGenerator::set(PlanItem item)

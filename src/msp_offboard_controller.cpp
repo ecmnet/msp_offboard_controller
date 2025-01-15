@@ -1,29 +1,27 @@
 
 #include <msp_offboard_controller/msp_offboard_controller.hpp>
+#include <msp_offboard_controller/msp_node_base.hpp>
 #include <segment_trajectory_generator/SegmentedTrajectoryPlanner.h>
 #include <rclcpp/rclcpp.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/srv/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
-#include <px4_msgs/msg/log_message.hpp>
 
 /**
  * @brief MSP offboard controller
  */
 
-class MSPOffboardControllerNode : public rclcpp::Node
+class MSPOffboardControllerNode : public msp::MSPNodeBase  // public rclcpp::Node
 {
 public:
-  explicit MSPOffboardControllerNode() : Node("MSPOffboardController")
+  explicit MSPOffboardControllerNode() : msp::MSPNodeBase("MSPOffboardController")
   {
 	RCLCPP_INFO(this->get_logger(), "Offboard controller started");
-	rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
-	auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
+	auto qos = this->getQos();
 
-	msp_cmd_publisher_ = this->create_publisher<px4_msgs::msg::VehicleCommand>(MSP_CMD_PUB, qos);
 	setpoint_publisher_ = this->create_publisher<px4_msgs::msg::TrajectorySetpoint>(MSP_TRJ_PUB, qos);
-	message_publisher_ = this->create_publisher<px4_msgs::msg::LogMessage>(MSP_LOG_PUB, qos);
 
 	status_subscription_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
 		MSP_STATUS_SUB, qos, [this](const px4_msgs::msg::VehicleStatus::UniquePtr msg) {
@@ -49,34 +47,35 @@ public:
 		  }
 		});
 
-	msp_cmd_subscription_ = this->create_subscription<px4_msgs::msg::VehicleCommand>(
-		MSP_CMD_SUB, qos, [this](const px4_msgs::msg::VehicleCommand::UniquePtr msg) {
-		  switch (msg->command)
-		  {
-			case MSP_CMD_OFFBOARD_SETLOCALPOS:
-
-			  target_pos.x = msg->param1;
-			  target_pos.y = msg->param2;
-			  if (std::isfinite(msg->param3))
-				target_pos.z = msg->param3;
-			  else
-				target_pos.z = current_state.pos.z;
-			  current_plan = msp::MSPTrajectory();
-			  current_plan.addAll(
-				  planner_.createOptimizedDirectPathPlan(current_state, target_pos, MAX_VELOCITY,0));
-			  current_plan.addAll(planner_.createCirclePathPlan(current_plan.getLastState(), 1.0f, 2.5f, 1));
-			  std::cout << current_plan << std::endl;
-			  state_ = State::offboard_requested;
-			  break;
-
-			default:
-			  log_message("[msp] Unknown MSP command", MAV_SEVERITY_ERROR);
-		  }
-		});
-
 	timer_ = this->create_wall_timer(std::chrono::milliseconds(OFFBOARD_RATE),
 									 std::bind(&MSPOffboardControllerNode::offboard_worker, this));
   }
+
+  void receive_msp_command(const std::shared_ptr<px4_msgs::srv::VehicleCommand::Request> request,
+						  std::shared_ptr<px4_msgs::srv::VehicleCommand::Response> response) override
+  {
+	switch (request->request.command)
+	{
+	  case MSP_CMD::MSP_CMD_OFFBOARD_SETLOCALPOS:
+
+		target_pos.x = request->request.param1;
+		target_pos.y = request->request.param2;
+		if (std::isfinite(request->request.param3))
+		  target_pos.z = request->request.param3;
+		else
+		  target_pos.z = current_state.pos.z;
+		current_plan = msp::MSPTrajectory();
+		current_plan.addAll(planner_.createOptimizedDirectPathPlan(current_state, target_pos, MAX_VELOCITY, 2.5f ));
+		//current_plan.addAll(planner_.createCirclePathPlan(current_plan.getLastState(), 1.0f, 10.0f, 1));
+		// std::cout << current_plan << std::endl;
+		state_ = State::offboard_requested;
+		break;
+
+	  default:
+		log_message("[msp] Unknown MSP command", MAV_SEVERITY_ERROR);
+	}
+  }
+
 
 private:
   void offboard_worker()
@@ -125,7 +124,7 @@ private:
 		// Send some setpoints before switching to offboard
 		if (++counter == 5)
 		{
-		  this->publish_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
+		  this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
 		  RCLCPP_INFO(this->get_logger(), "Offboard execution started.");
 		  state_ = State::plan_next_segment;
 		}
@@ -139,7 +138,12 @@ private:
 		  state_ = State::target_reached;
 		  return;
 		}
-		current_segment = current_plan.next(current_state);
+		current_segment = current_plan.next();
+
+		// If the item is a new path, update initial state
+		if (current_segment.isFirst())
+		  current_segment.setInitialState(current_state);
+
 		executor_.generate(current_segment);
 		start_us = this->get_clock()->now().nanoseconds() / 1000L;
 		state_ = State::execute_segment;
@@ -162,7 +166,7 @@ private:
 
 	  case State::target_reached:
 
-		this->publish_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
+		this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
 		// TODO: Run callback
 		this->log_message("[msp] Target reached", MAV_SEVERITY_INFO);
 		state_ = State::idle;
@@ -196,39 +200,11 @@ private:
 	setpoint_publisher_->publish(message);
   }
 
-  void publish_vehicle_command(const uint16_t command, const float param1 = 0, const float param2 = 0,
-							   const float param3 = 0)
-  {
-	auto msg = px4_msgs::msg::VehicleCommand();
-	msg.param1 = param1;
-	msg.param2 = param2;
-	msg.param3 = param3;
-	msg.command = command;
-	msg.target_system = 1;
-	msg.target_component = 1;
-	msg.source_system = 1;
-	msg.source_component = 1;
-	msg.from_external = true;
-	msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
-	msp_cmd_publisher_->publish(msg);
-  }
-
-  void log_message(const std::string msg, const uint8_t severity)
-  {
-	auto message = px4_msgs::msg::LogMessage();
-	std::copy_n(msg.begin(), std::min(msg.size(), message.text.size()), message.text.begin());
-	message.set__severity(severity);
-	message_publisher_->publish(message);
-	RCLCPP_INFO(this->get_logger(), "%s", msg.c_str());
-  }
 
   rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_pos_subscription_;
-  rclcpp::Subscription<px4_msgs::msg::VehicleCommand>::SharedPtr msp_cmd_subscription_;
   rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr status_subscription_;
 
   rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr setpoint_publisher_;
-  rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr msp_cmd_publisher_;
-  rclcpp::Publisher<px4_msgs::msg::LogMessage>::SharedPtr message_publisher_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
