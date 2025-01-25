@@ -29,6 +29,9 @@ public:
   double max_velocity;       //! Used maxim velocity
   double costs = 0;          //! Costs of the segment
   bool   is_first;           //! First item of a path (used to do a initial state update with current)
+  Vec3   alpha;              //! Trajectory parameter alpha
+  Vec3   beta;               //! Trajectory parameter beta
+  Vec3   gamma;              //! Trajectory parameter gamma
 
   Type planning_type = PlanItem::TYPE_POS_VEL_ACC;
 

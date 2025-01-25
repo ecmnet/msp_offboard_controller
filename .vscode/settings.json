@@ -8,8 +8,5 @@
         "/home/ecm/ws_msp/install/px4_msgs/local/lib/python3.10/dist-packages",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
-    ],
-    "editor.fontSize": 12,
-    "debug.console.fontSize": 12,
-    "terminal.integrated.fontSize": 12
+    ]
 }

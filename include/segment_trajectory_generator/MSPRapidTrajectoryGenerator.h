@@ -15,7 +15,7 @@ public:
    * @param item The PlanItem to be generated
    * @return returns the costs of the segment
    */
-  float generate(PlanItem item);
+  float generate(PlanItem* item);
 
   /*! Gets a setpoint as StateTriplet for a certain point in time
    *
@@ -26,7 +26,7 @@ public:
 
 private:
 
-  void set(PlanItem item);
+  void set(PlanItem* item);
 
   const Vec3 gravity = Vec3(0, 0, -9.81);
 };
