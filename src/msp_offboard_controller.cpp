@@ -9,6 +9,7 @@
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <msp_msgs/msg/trajectory.hpp>
+#include <msp_msgs/srv/trajectory_check.hpp>
 // #include <msp_msgs/msg/heartbeat.hpp>
 
 /**
@@ -26,6 +27,8 @@ public:
 		setpoint_publisher_ = this->create_publisher<px4_msgs::msg::TrajectorySetpoint>(MSP_TRJ_PUB, qos);
 		trajectory_publisher_ = this->create_publisher<msp_msgs::msg::Trajectory>("msp/in/trajectory", qos);
 		// heartbeat_publisher_ = this->create_publisher<msp_msgs::msg::Heartbeat>("/msp/in/heartbeat", qos);
+
+		msp_trajectory_check_client = this->create_client<msp_msgs::srv::TrajectoryCheck>("/msp/in/trajectory_check");
 
 		status_subscription_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
 			MSP_STATUS_SUB, qos, [this](const px4_msgs::msg::VehicleStatus::UniquePtr msg)
@@ -152,6 +155,8 @@ private:
 			current_segment.setInitialState(current_state);
 
 			executor_.generate(&current_segment);
+            checkTrajectory(current_segment);
+
 			start_us = this->get_clock()->now().nanoseconds() / 1000L;
 			state_ = State::execute_segment;
 			break;
@@ -162,7 +167,7 @@ private:
 
 			if (elapsed_s > current_segment.estimated_time_s)
 			{
-				
+
 				state_ = State::plan_next_segment;
 				return;
 			}
@@ -174,7 +179,7 @@ private:
 
 		case State::target_reached:
 
-		    sendTrajectory(current_segment);
+			sendTrajectory(current_segment);
 			this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
 			// TODO: Run callback
 			this->log_message("[msp] Target reached", MAV_SEVERITY_INFO);
@@ -232,11 +237,50 @@ private:
 		trajectory_publisher_->publish(message);
 	}
 
+	void checkTrajectory(msp::PlanItem item)
+	{
+		auto request = std::make_shared<msp_msgs::srv::TrajectoryCheck::Request>();
+		auto message = msp_msgs::msg::Trajectory();
+
+		//TODO: Rotate params to BodyFrame
+
+		message.id = 1;
+		message.done_secs = elapsed_s;
+		message.total_secs = item.estimated_time_s;
+
+		for (int i = 0; i < 3; i++)
+		{
+			message.alpha[i] = float(item.alpha[i]);
+			message.beta[i] =  float(item.beta[i]);
+			message.gamma[i] = float(item.gamma[i]);
+
+			message.pos0[i] = item.initialState.pos[i];
+			message.vel0[i] = item.initialState.vel[i];
+			message.acc0[i] = item.initialState.acc[i];
+		}
+
+		message.timestamp = this->get_clock()->now().nanoseconds() / 1000L;
+
+		request->request = message;
+		msp_trajectory_check_client->async_send_request(request,std::bind(&MSPOffboardControllerNode::handleCollisionCheckResult, this,std::placeholders::_1));
+	}
+
+	void handleCollisionCheckResult(rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedFuture future) {
+		auto response = future.get();
+		if(response->reply.status == 0) {
+		   state_ = State::idle;
+		   this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
+           this->log_message("[msp] Emergency stop. Collision expected.", MAV_SEVERITY_ALERT);
+		}
+	}
+
 	rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_pos_subscription_;
 	rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr status_subscription_;
 
 	rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr setpoint_publisher_;
 	rclcpp::Publisher<msp_msgs::msg::Trajectory>::SharedPtr trajectory_publisher_;
+
+	rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedPtr msp_trajectory_check_client;
 
 	//   rclcpp::Publisher<msp_msgs::msg::Heartbeat>::SharedPtr heartbeat_publisher_;
 
