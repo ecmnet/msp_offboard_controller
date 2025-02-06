@@ -7,7 +7,7 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wextra -Wpedantic -O2)
 endif()
 
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -23,21 +23,27 @@ find_package(msp_msgs REQUIRED)
 find_package(msp_controller REQUIRED)
 find_package(Boost REQUIRED thread)
 
+#find_package(OpenCV REQUIRED)
+#find_package(cv_bridge REQUIRED)
 #find_package(eigen3_cmake_module REQUIRED)
 #find_package(Eigen3 REQUIRED)
 
 add_library(TrajectoryGenerator      STATIC src/lib/RapidTrajectoryGenerator/RapidTrajectoryGenerator.cpp 
                                             src/lib/RapidTrajectoryGenerator/SingleAxisTrajectory.cpp
 											src/lib/SegmentTrajectoryGenerator/SegmentedTrajectoryPlanner.cpp
-											src/lib/SegmentTrajectoryGenerator/MSPRapidTrajectoryGenerator.cpp)
+											src/lib/SegmentTrajectoryGenerator/MSPRapidTrajectoryGenerator.cpp
+											)
+
 ament_target_dependencies(TrajectoryGenerator Boost rclcpp)
 target_include_directories(TrajectoryGenerator PUBLIC
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/${PROJECT_NAME}>
 	$<INSTALL_INTERFACE:include/${PROJECT_NAME}>
 )
 
-add_executable(msp_offboard_controller src/msp_offboard_controller.cpp)
-ament_target_dependencies(msp_offboard_controller msp_controller rclcpp px4_msgs msp_msgs)
+add_executable(msp_offboard_controller src/msp_offboard_controller.cpp
+                                       
+              )
+ament_target_dependencies(msp_offboard_controller msp_controller rclcpp px4_msgs msp_msgs  )
 
 target_link_libraries(msp_offboard_controller TrajectoryGenerator)
 

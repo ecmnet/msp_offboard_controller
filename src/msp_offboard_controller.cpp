@@ -12,6 +12,9 @@
 #include <msp_msgs/srv/trajectory_check.hpp>
 // #include <msp_msgs/msg/heartbeat.hpp>
 
+
+using namespace msp;
+
 /**
  * @brief MSP offboard controller
  */
@@ -48,6 +51,7 @@ public:
 			MSP_POS_SUB, qos, [this](const px4_msgs::msg::VehicleLocalPosition::UniquePtr msg)
 			{
 		  current_state.set(msg->x, msg->y, msg->z, msg->vx, msg->vy, msg->vz, msg->ax, msg->ay,msg->az);
+
 		                 //   msg->acceleration[0], msg->acceleration[1], msg->acceleration[2]);
 
 		  current_yaw = msg->heading;
@@ -61,8 +65,6 @@ public:
 		timer_ = this->create_wall_timer(std::chrono::milliseconds(OFFBOARD_RATE),
 										 std::bind(&MSPOffboardControllerNode::offboard_worker, this));
 
-		// hb_timer_ = this->create_wall_timer(std::chrono::milliseconds(2000),
-		// 									std::bind(&MSPOffboardControllerNode::send_heartbeat, this));
 	}
 
 	void receive_msp_command(const std::shared_ptr<px4_msgs::srv::VehicleCommand::Request> request,
@@ -153,10 +155,8 @@ private:
 			// // If the item is a new path, update initial state
 			// if (current_segment.isFirst())
 			current_segment.setInitialState(current_state);
-
 			executor_.generate(&current_segment);
-            checkTrajectory(current_segment);
-
+			checkTrajectory(current_segment, 0);
 			start_us = this->get_clock()->now().nanoseconds() / 1000L;
 			state_ = State::execute_segment;
 			break;
@@ -173,8 +173,9 @@ private:
 			}
 
 			executor_.getSetpointAt(elapsed_s, current_setpoint);
+			checkTrajectory(current_segment, elapsed_s);
 			sendSetpoint(current_setpoint);
-			sendTrajectory(current_segment, elapsed_s);
+		//	sendTrajectory(current_segment, elapsed_s);
 			break;
 
 		case State::target_reached:
@@ -237,12 +238,11 @@ private:
 		trajectory_publisher_->publish(message);
 	}
 
-	void checkTrajectory(msp::PlanItem item)
+	void checkTrajectory(msp::PlanItem item, double elapsed_s = -1.0)
 	{
 		auto request = std::make_shared<msp_msgs::srv::TrajectoryCheck::Request>();
 		auto message = msp_msgs::msg::Trajectory();
 
-		//TODO: Rotate params to BodyFrame
 
 		message.id = 1;
 		message.done_secs = elapsed_s;
@@ -266,11 +266,13 @@ private:
 	}
 
 	void handleCollisionCheckResult(rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedFuture future) {
+		if( state_ == State::idle)
+		  return;
 		auto response = future.get();
 		if(response->reply.status == 0) {
 		   state_ = State::idle;
 		   this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
-           this->log_message("[msp] Emergency stop. Collision expected.", MAV_SEVERITY_ALERT);
+           this->log_message("[msp] Emergency stop. High risk of collision.", MAV_SEVERITY_ALERT);
 		}
 	}
 
@@ -282,10 +284,8 @@ private:
 
 	rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedPtr msp_trajectory_check_client;
 
-	//   rclcpp::Publisher<msp_msgs::msg::Heartbeat>::SharedPtr heartbeat_publisher_;
 
 	rclcpp::TimerBase::SharedPtr timer_;
-	//   rclcpp::TimerBase::SharedPtr hb_timer_;
 
 	msp::SegmentedTrajectoryPlanner planner_ = msp::SegmentedTrajectoryPlanner();
 	msp::MSPRapidTrajectoryGenerator executor_ = msp::MSPRapidTrajectoryGenerator();
