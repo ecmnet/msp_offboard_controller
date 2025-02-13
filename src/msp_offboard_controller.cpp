@@ -12,7 +12,6 @@
 #include <msp_msgs/srv/trajectory_check.hpp>
 // #include <msp_msgs/msg/heartbeat.hpp>
 
-
 using namespace msp;
 
 /**
@@ -33,20 +32,6 @@ public:
 
 		msp_trajectory_check_client = this->create_client<msp_msgs::srv::TrajectoryCheck>("/msp/in/trajectory_check");
 
-		status_subscription_ = this->create_subscription<px4_msgs::msg::VehicleStatus>(
-			MSP_STATUS_SUB, qos, [this](const px4_msgs::msg::VehicleStatus::UniquePtr msg)
-			{
-		  // if offboard left externally, switch state to idle
-		  if (nav_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
-			  msg->nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
-			  state_ == State::execute_segment) 
-		  {
-			sendTrajectory(current_segment);
-			log_message("[msp] Offboard stopped externally", MAV_SEVERITY_NOTICE);
-			state_ = State::idle;
-		  }
-		  nav_state = msg->nav_state; });
-
 		local_pos_subscription_ = this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
 			MSP_POS_SUB, qos, [this](const px4_msgs::msg::VehicleLocalPosition::UniquePtr msg)
 			{
@@ -64,7 +49,6 @@ public:
 
 		timer_ = this->create_wall_timer(std::chrono::milliseconds(OFFBOARD_RATE),
 										 std::bind(&MSPOffboardControllerNode::offboard_worker, this));
-
 	}
 
 	void receive_msp_command(const std::shared_ptr<px4_msgs::srv::VehicleCommand::Request> request,
@@ -86,6 +70,19 @@ public:
 			// std::cout << current_plan << std::endl;
 			state_ = State::offboard_requested;
 			break;
+		}
+	}
+
+	void onVehicleStatusReceived(const px4_msgs::msg::VehicleStatus::UniquePtr msg) override
+	{
+		// if offboard left externally, switch state to idle
+		if (nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
+			msg->nav_state & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
+			state_ == State::execute_segment)
+		{
+			sendTrajectory(current_segment);
+			log_message("[msp] Offboard stopped externally", MAV_SEVERITY_NOTICE);
+			state_ = State::idle;
 		}
 	}
 
@@ -113,8 +110,8 @@ private:
 			RCLCPP_INFO(this->get_logger(), "Offboard control requested");
 
 			// Initial checks
-			if (!initialized || (nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER &&
-								 nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD))
+			if (!initialized || ((nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER) &&
+								 (nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)))
 			{
 				this->log_message("[msp] Offboard request rejected.", MAV_SEVERITY_NOTICE);
 				state_ = State::idle;
@@ -127,7 +124,7 @@ private:
 		case State::wait_for_stable_offboard_mode:
 
 			// Already in offboard mode?
-			if (nav_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
+			if (nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
 			{
 				state_ = State::plan_next_segment;
 				return;
@@ -156,7 +153,8 @@ private:
 			// if (current_segment.isFirst())
 			current_segment.setInitialState(current_state);
 			executor_.generate(&current_segment);
-			checkTrajectory(current_segment, 0);
+			executor_.getSetpointAt(current_segment.estimated_time_s, target_setpoint);
+			checkTrajectory(current_segment,target_setpoint, 0);
 			start_us = this->get_clock()->now().nanoseconds() / 1000L;
 			state_ = State::execute_segment;
 			break;
@@ -173,9 +171,10 @@ private:
 			}
 
 			executor_.getSetpointAt(elapsed_s, current_setpoint);
-			checkTrajectory(current_segment, elapsed_s);
+			executor_.getSetpointAt(current_segment.estimated_time_s, target_setpoint);
+			checkTrajectory(current_segment, target_setpoint, elapsed_s);
 			sendSetpoint(current_setpoint);
-		//	sendTrajectory(current_segment, elapsed_s);
+			//	sendTrajectory(current_segment, elapsed_s);
 			break;
 
 		case State::target_reached:
@@ -238,52 +237,55 @@ private:
 		trajectory_publisher_->publish(message);
 	}
 
-	void checkTrajectory(msp::PlanItem item, double elapsed_s = -1.0)
+	void checkTrajectory(msp::PlanItem item, msp::StateTriplet target_setpoint,double elapsed_s = -1.0)
 	{
 		auto request = std::make_shared<msp_msgs::srv::TrajectoryCheck::Request>();
-		auto message = msp_msgs::msg::Trajectory();
+		auto trajectory = msp_msgs::msg::Trajectory();
 
-
-		message.id = 1;
-		message.done_secs = elapsed_s;
-		message.total_secs = item.estimated_time_s;
+		trajectory.id = 1;
+		trajectory.done_secs = elapsed_s;
+		trajectory.total_secs = item.estimated_time_s;
 
 		for (int i = 0; i < 3; i++)
 		{
-			message.alpha[i] = float(item.alpha[i]);
-			message.beta[i] =  float(item.beta[i]);
-			message.gamma[i] = float(item.gamma[i]);
+			trajectory.alpha[i] = float(item.alpha[i]);
+			trajectory.beta[i]  = float(item.beta[i]);
+			trajectory.gamma[i] = float(item.gamma[i]);
 
-			message.pos0[i] = item.initialState.pos[i];
-			message.vel0[i] = item.initialState.vel[i];
-			message.acc0[i] = item.initialState.acc[i];
+			trajectory.pos0[i] = item.initialState.pos[i];
+			trajectory.vel0[i] = item.initialState.vel[i];
+			trajectory.acc0[i] = item.initialState.acc[i];
 		}
 
-		message.timestamp = this->get_clock()->now().nanoseconds() / 1000L;
+		trajectory.timestamp = this->get_clock()->now().nanoseconds() / 1000L;
 
-		request->request = message;
-		msp_trajectory_check_client->async_send_request(request,std::bind(&MSPOffboardControllerNode::handleCollisionCheckResult, this,std::placeholders::_1));
+		request->trajectory   = trajectory;
+		request->pos1[0] = target_setpoint.pos.x;
+		request->pos1[1] = target_setpoint.pos.y;
+		request->pos1[2] = target_setpoint.pos.z;
+
+		msp_trajectory_check_client->async_send_request(request, std::bind(&MSPOffboardControllerNode::handleCollisionCheckResult, this, std::placeholders::_1));
 	}
 
-	void handleCollisionCheckResult(rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedFuture future) {
-		if( state_ == State::idle)
-		  return;
+	void handleCollisionCheckResult(rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedFuture future)
+	{
+		if (state_ == State::idle)
+			return;
 		auto response = future.get();
-		if(response->reply.status == 0) {
-		   state_ = State::idle;
-		   this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
-           this->log_message("[msp] Emergency stop. High risk of collision.", MAV_SEVERITY_ALERT);
+		if (response->reply.status == 0)
+		{
+			state_ = State::idle;
+			this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
+			this->log_message("[msp] Emergency stop. High risk of collision.", MAV_SEVERITY_ALERT);
 		}
 	}
 
 	rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_pos_subscription_;
-	rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr status_subscription_;
 
 	rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr setpoint_publisher_;
 	rclcpp::Publisher<msp_msgs::msg::Trajectory>::SharedPtr trajectory_publisher_;
 
 	rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedPtr msp_trajectory_check_client;
-
 
 	rclcpp::TimerBase::SharedPtr timer_;
 
@@ -294,7 +296,6 @@ private:
 	double elapsed_s = 0;
 	double offset_s = 0;
 	bool initialized = false;
-	uint8_t nav_state;
 
 	// Target position
 	Vec3 target_pos = Vec3(0, 0, 0);
@@ -305,6 +306,9 @@ private:
 
 	// Current setpoint
 	msp::StateTriplet current_setpoint = msp::StateTriplet();
+
+	// Target setpoint
+	msp::StateTriplet target_setpoint = msp::StateTriplet();
 
 	// Current plan: A vector of PlanItems
 	msp::MSPTrajectory current_plan;
