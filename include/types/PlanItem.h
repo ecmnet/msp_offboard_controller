@@ -20,7 +20,8 @@ public:
     TYPE_POS_VEL_ACC,
     TYPE_VEL,
     TYPE_VEL_ACC,
-    TYPE_ACC
+    TYPE_ACC,
+    TYPE_YAW_ONLY
   } Type;
 
   StateTriplet initialState; //! Initialstate (usually the current state)

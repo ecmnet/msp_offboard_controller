@@ -29,5 +29,8 @@ private:
   void set(PlanItem* item);
 
   const Vec3 gravity = Vec3(0, 0, -9.81);
+
+  minimum_jerk_trajectories::SingleAxisTrajectory yaw;
+
 };
 }

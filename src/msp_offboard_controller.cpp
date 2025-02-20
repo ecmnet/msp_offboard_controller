@@ -35,11 +35,8 @@ public:
 		local_pos_subscription_ = this->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
 			MSP_POS_SUB, qos, [this](const px4_msgs::msg::VehicleLocalPosition::UniquePtr msg)
 			{
-		  current_state.set(msg->x, msg->y, msg->z, msg->vx, msg->vy, msg->vz, msg->ax, msg->ay,msg->az);
-
-		                 //   msg->acceleration[0], msg->acceleration[1], msg->acceleration[2]);
-
-		  current_yaw = msg->heading;
+		        current_state.set(msg->x, msg->y, msg->z, msg->vx, msg->vy, msg->vz, msg->ax, msg->ay,msg->az, 
+					              -msg->heading, -msg->heading_var);
 
 		  if (!initialized)
 		  {
@@ -58,16 +55,28 @@ public:
 		{
 		case MSP_CMD::MSP_CMD_OFFBOARD_SETLOCALPOS:
 
-			target_pos.x = request->request.param1;
-			target_pos.y = request->request.param2;
+			target_state.clear();
+
+			// XY
+			target_state.pos.x = request->request.param1;
+			target_state.pos.y = request->request.param2;
+
+			// Z
 			if (std::isfinite(request->request.param3))
-				target_pos.z = request->request.param3;
+				target_state.pos.z = request->request.param3;
 			else
-				target_pos.z = current_state.pos.z;
+				target_state.pos.z = current_state.pos.z;
+
+			// Yaw
+			if (std::isfinite(request->request.param4))
+				target_state.yaw.x = request->request.param4;
+			else
+				target_state.yaw.x = std::numeric_limits<double>::quiet_NaN();
+
 			current_plan = msp::MSPTrajectory();
-			current_plan.addAll(planner_.createOptimizedDirectPathPlan(current_state, target_pos, MAX_VELOCITY, 2.5f));
-			// current_plan.addAll(planner_.createCirclePathPlan(current_plan.getLastState(), 1.0f, 10.0f, 1));
-			// std::cout << current_plan << std::endl;
+			current_plan.addAll(planner_.createOptimizedDirectPathPlan(current_state, target_state, MAX_VELOCITY, 2.5f));
+			// EXPERIMENT: current_plan.addAll(planner_.createCirclePathPlan(current_plan.getLastState(), 1.0f, 10.0f, 1));
+			//std::cout << current_plan << std::endl;
 			state_ = State::offboard_requested;
 			break;
 		}
@@ -130,7 +139,7 @@ private:
 				return;
 			}
 			// Send some setpoints before switching to offboard
-			if (++this->counter == 10)
+			if (++this->counter == 3)
 			{
 				this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
 				RCLCPP_INFO(this->get_logger(), "Offboard execution started.");
@@ -154,7 +163,7 @@ private:
 			current_segment.setInitialState(current_state);
 			executor_.generate(&current_segment);
 			executor_.getSetpointAt(current_segment.estimated_time_s, target_setpoint);
-			checkTrajectory(current_segment,target_setpoint, 0);
+			checkTrajectory(current_segment, target_setpoint, 0);
 			start_us = this->get_clock()->now().nanoseconds() / 1000L;
 			state_ = State::execute_segment;
 			break;
@@ -174,7 +183,7 @@ private:
 			executor_.getSetpointAt(current_segment.estimated_time_s, target_setpoint);
 			checkTrajectory(current_segment, target_setpoint, elapsed_s);
 			sendSetpoint(current_setpoint);
-			//	sendTrajectory(current_segment, elapsed_s);
+			sendTrajectory(current_segment, elapsed_s);
 			break;
 
 		case State::target_reached:
@@ -204,7 +213,14 @@ private:
 		message.acceleration[1] = setpoint.acc.y;
 		message.acceleration[2] = setpoint.acc.z;
 
-		if (setpoint.vel.GetNorm2() > MIN_YAW_FOLLOW_VELOCITY)
+		if (std::isfinite(setpoint.yaw.x))
+		{
+			message.yaw = setpoint.yaw.x;
+			// Only control via rate
+			message.yaw = std::numeric_limits<float>::quiet_NaN();
+			message.yawspeed = setpoint.yaw.y;
+		}
+		else if (setpoint.vel.GetNorm2() > MIN_YAW_FOLLOW_VELOCITY)
 			message.yaw = setpoint.vel.getXYAngle();
 		else
 			message.yaw = std::numeric_limits<float>::quiet_NaN();
@@ -215,7 +231,6 @@ private:
 
 	void sendTrajectory(msp::PlanItem item, double elapsed_s = -1.0)
 	{
-
 		auto message = msp_msgs::msg::Trajectory();
 
 		message.id = 1;
@@ -237,7 +252,7 @@ private:
 		trajectory_publisher_->publish(message);
 	}
 
-	void checkTrajectory(msp::PlanItem item, msp::StateTriplet target_setpoint,double elapsed_s = -1.0)
+	void checkTrajectory(msp::PlanItem item, msp::StateTriplet target_setpoint, double elapsed_s = -1.0)
 	{
 		auto request = std::make_shared<msp_msgs::srv::TrajectoryCheck::Request>();
 		auto trajectory = msp_msgs::msg::Trajectory();
@@ -249,7 +264,7 @@ private:
 		for (int i = 0; i < 3; i++)
 		{
 			trajectory.alpha[i] = float(item.alpha[i]);
-			trajectory.beta[i]  = float(item.beta[i]);
+			trajectory.beta[i] = float(item.beta[i]);
 			trajectory.gamma[i] = float(item.gamma[i]);
 
 			trajectory.pos0[i] = item.initialState.pos[i];
@@ -259,7 +274,7 @@ private:
 
 		trajectory.timestamp = this->get_clock()->now().nanoseconds() / 1000L;
 
-		request->trajectory   = trajectory;
+		request->trajectory = trajectory;
 		request->pos1[0] = target_setpoint.pos.x;
 		request->pos1[1] = target_setpoint.pos.y;
 		request->pos1[2] = target_setpoint.pos.z;
@@ -280,6 +295,7 @@ private:
 		}
 	}
 
+	
 	rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_pos_subscription_;
 
 	rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr setpoint_publisher_;
@@ -297,8 +313,8 @@ private:
 	double offset_s = 0;
 	bool initialized = false;
 
-	// Target position
-	Vec3 target_pos = Vec3(0, 0, 0);
+	// Target state
+	StateTriplet target_state;
 
 	// Current state
 	msp::StateTriplet current_state = msp::StateTriplet();
