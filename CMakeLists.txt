@@ -22,11 +22,9 @@ find_package(px4_msgs REQUIRED)
 find_package(msp_msgs REQUIRED)
 find_package(msp_controller REQUIRED)
 find_package(Boost REQUIRED thread)
-
-#find_package(OpenCV REQUIRED)
-#find_package(cv_bridge REQUIRED)
-#find_package(eigen3_cmake_module REQUIRED)
-#find_package(Eigen3 REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(glog REQUIRED)
 
 add_library(TrajectoryGenerator      STATIC src/lib/RapidTrajectoryGenerator/RapidTrajectoryGenerator.cpp 
                                             src/lib/RapidTrajectoryGenerator/SingleAxisTrajectory.cpp
@@ -43,9 +41,9 @@ target_include_directories(TrajectoryGenerator PUBLIC
 add_executable(msp_offboard_controller src/msp_offboard_controller.cpp
                                        
               )
-ament_target_dependencies(msp_offboard_controller msp_controller rclcpp px4_msgs msp_msgs  )
+ament_target_dependencies(msp_offboard_controller msp_controller rclcpp px4_msgs msp_msgs tf2 tf2_ros glog  )
 
-target_link_libraries(msp_offboard_controller TrajectoryGenerator)
+target_link_libraries(msp_offboard_controller TrajectoryGenerator glog )
 
 ament_export_dependencies(ament_cmake rclcpp rosidl_default_runtime px4_msgs msp_msgs )
 ament_export_include_directories(include)
