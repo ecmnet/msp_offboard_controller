@@ -82,11 +82,10 @@ public:
 		}
 	}
 
-	void onVehicleStatusReceived(const px4_msgs::msg::VehicleStatus::UniquePtr msg) override
-	{
-		// if offboard left externally, switch state to idle
-		if (nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
-			msg->nav_state & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
+	void onNavState(uint8_t nav_state) override {
+
+		// 	// if offboard left externally, switch state to idle
+		if (nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
 			state_ == State::execute_segment)
 		{
 			sendTrajectory(current_segment);
@@ -119,8 +118,8 @@ private:
 			RCLCPP_INFO(this->get_logger(), "Offboard control requested");
 
 			// Initial checks
-			if (!initialized || ((nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER) &&
-								 (nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)))
+			if (!initialized   || ((nav_state_ != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER) &&
+								   (nav_state_ != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)))
 			{
 				this->log_message("[msp] Offboard request rejected.", MAV_SEVERITY_NOTICE);
 				state_ = State::idle;
@@ -133,7 +132,7 @@ private:
 		case State::wait_for_stable_offboard_mode:
 
 			// Already in offboard mode?
-			if (nav_state_ & px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
+			if (nav_state_ == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)
 			{
 				state_ = State::plan_next_segment;
 				return;
