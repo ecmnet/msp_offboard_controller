@@ -78,14 +78,15 @@ public:
 			current_plan = msp::MSPTrajectory();
 			current_plan.addAll(planner_.createOptimizedDirectPathPlan(current_state, target_state, MAX_VELOCITY, 2.5f));
 			// EXPERIMENT: current_plan.addAll(planner_.createCirclePathPlan(current_plan.getLastState(), 1.0f, 10.0f, 1));
-			//std::cout << current_plan << std::endl;
+			// std::cout << current_plan << std::endl;
 			checkTrajectory(current_plan);
 			// state_ = State::offboard_requested;
 			break;
 		}
 	}
 
-	void onNavState(uint8_t nav_state) override {
+	void onNavState(uint8_t nav_state) override
+	{
 
 		// 	// if offboard left externally, switch state to idle
 		if (nav_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD &&
@@ -121,8 +122,8 @@ private:
 			RCLCPP_INFO(this->get_logger(), "Offboard control requested");
 
 			// Initial checks
-			if (!initialized   || ((nav_state_ != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER) &&
-								   (nav_state_ != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)))
+			if (!initialized || ((nav_state_ != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER) &&
+								 (nav_state_ != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD)))
 			{
 				this->log_message("[msp] Offboard request rejected.", MAV_SEVERITY_NOTICE);
 				state_ = State::idle;
@@ -186,13 +187,18 @@ private:
 			sendTrajectory(current_segment, elapsed_s);
 			break;
 
+		case State::abort_execution:
+			this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
+			state_ = State::idle;
+			sendTrajectory(current_segment);
+			break;
 		case State::target_reached:
 
 			sendTrajectory(current_segment);
 			this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
-			// TODO: Run callback
 			this->log_message("[msp] Target reached", MAV_SEVERITY_INFO);
 			state_ = State::idle;
+			sendTrajectory(current_segment);
 			break;
 		}
 	}
@@ -257,10 +263,11 @@ private:
 		auto request = std::make_shared<msp_msgs::srv::TrajectoryCheck::Request>();
 		auto trajectory = msp_msgs::msg::TrajectoryPlan();
 
-		int i=0;
-		while(!plan.empty()) {
+		int i = 0;
+		while (!plan.empty())
+		{
 			auto item = plan.next();
-			if(item.planning_type == msp::PlanItem::TYPE_YAW_ONLY)
+			if (item.planning_type == msp::PlanItem::TYPE_YAW_ONLY)
 				continue;
 			trajectory.segments[i++] = msp::ros2::convert::toTrajectoryPlanItemMessage(item);
 		}
@@ -271,25 +278,24 @@ private:
 
 	void handleTrajectoryCheckResult(rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedFuture future)
 	{
-		
+
 		auto response = future.get();
-		switch(response->reply.status)
+		switch (response->reply.status)
 		{
-			case msp_msgs::msg::TrajectoryCheckAck::STATUS_NO_COLLISION:
+		case msp_msgs::msg::TrajectoryCheckAck::STATUS_NO_COLLISION:
 			state_ = State::offboard_requested;
-				break;
-			case msp_msgs::msg::TrajectoryCheckAck::STATUS_EMERGENCY_STOP:
-				this->log_message("[msp] Trajectory collision. Aborted.", MAV_SEVERITY_CRITICAL);
-				state_ = State::idle;
-				break;
-			case msp_msgs::msg::TrajectoryCheckAck::STATUS_REPLANNED:
-				this->log_message("[msp] Trajectory check unknown", MAV_SEVERITY_WARNING);
-				state_ = State::offboard_requested;
-				break;
+			break;
+		case msp_msgs::msg::TrajectoryCheckAck::STATUS_EMERGENCY_STOP:
+			this->log_message("[msp] Collision ahead. Aborted.", MAV_SEVERITY_CRITICAL);
+			state_ = State::abort_execution;
+			break;
+		case msp_msgs::msg::TrajectoryCheckAck::STATUS_REPLANNED:
+			this->log_message("[msp] Trajectory replanned.", MAV_SEVERITY_WARNING);
+			state_ = State::abort_execution;
+			break;
 		}
 	}
 
-	
 	rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_pos_subscription_;
 
 	rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr setpoint_publisher_;
@@ -334,6 +340,7 @@ private:
 		wait_for_stable_offboard_mode,
 		plan_next_segment,
 		execute_segment,
+		abort_execution,
 		target_reached,
 	} state_ = State::idle;
 
