@@ -77,7 +77,8 @@ public:
 			current_plan.addAll(planner_.createOptimizedDirectPathPlan(current_state, target_state, MAX_VELOCITY, 2.5f));
 			// EXPERIMENT: current_plan.addAll(planner_.createCirclePathPlan(current_plan.getLastState(), 1.0f, 10.0f, 1));
 			//std::cout << current_plan << std::endl;
-			state_ = State::offboard_requested;
+			checkTrajectory(current_plan);
+			// state_ = State::offboard_requested;
 			break;
 		}
 	}
@@ -162,7 +163,6 @@ private:
 			current_segment.setInitialState(current_state);
 			executor_.generate(&current_segment);
 			executor_.getSetpointAt(current_segment.estimated_time_s, target_setpoint);
-			checkTrajectory(current_segment, target_setpoint, 0);
 			start_us = this->get_clock()->now().nanoseconds() / 1000L;
 			state_ = State::execute_segment;
 			break;
@@ -180,7 +180,6 @@ private:
 
 			executor_.getSetpointAt(elapsed_s, current_setpoint);
 			executor_.getSetpointAt(current_segment.estimated_time_s, target_setpoint);
-			checkTrajectory(current_segment, target_setpoint, elapsed_s);
 			sendSetpoint(current_setpoint);
 			sendTrajectory(current_segment, elapsed_s);
 			break;
@@ -251,47 +250,49 @@ private:
 		trajectory_publisher_->publish(message);
 	}
 
-	void checkTrajectory(msp::PlanItem item, msp::StateTriplet target_setpoint, double elapsed_s = -1.0)
+	void checkTrajectory(msp::MSPTrajectory plan)
 	{
 		auto request = std::make_shared<msp_msgs::srv::TrajectoryCheck::Request>();
-		auto trajectory = msp_msgs::msg::Trajectory();
+		auto trajectory = msp_msgs::msg::TrajectoryPlan();
 
-		trajectory.id = 1;
-		trajectory.done_secs = elapsed_s;
-		trajectory.total_secs = item.estimated_time_s;
-
-		for (int i = 0; i < 3; i++)
+        trajectory.count = plan.size();
+		for(int i = 0; i < plan.size(); i++)
 		{
-			trajectory.alpha[i] = float(item.alpha[i]);
-			trajectory.beta[i] = float(item.beta[i]);
-			trajectory.gamma[i] = float(item.gamma[i]);
-
-			trajectory.pos0[i] = item.initialState.pos[i];
-			trajectory.vel0[i] = item.initialState.vel[i];
-			trajectory.acc0[i] = item.initialState.acc[i];
+			auto item = plan.next();
+			auto segment = msp_msgs::msg::TrajectoryPlanItem();
+		    segment.estimated_time_s = item.estimated_time_s;
+			segment.planning_type = item.planning_type;
+			segment.max_velocity = item.max_velocity;
+			segment.costs = item.costs;
+			segment.is_first = item.is_first;
+			segment.initial_pos = {item.initialState.pos.x, item.initialState.pos.y, item.initialState.pos.z};
+			segment.initial_vel = {item.initialState.vel.x, item.initialState.vel.y, item.initialState.vel.z};
+			segment.initial_acc = {item.initialState.acc.x, item.initialState.acc.y, item.initialState.acc.z};
+			segment.target_pos = {item.targetState.pos.x, item.targetState.pos.y, item.targetState.pos.z};
+			segment.target_vel = {item.targetState.vel.x, item.targetState.vel.y, item.targetState.vel.z};
+			segment.target_acc = {item.targetState.acc.x, item.targetState.acc.y, item.targetState.acc.z};
+			segment.alpha = {item.alpha[0], item.alpha[1], item.alpha[2]};
+			segment.beta  = {item.beta[0], item.beta[1], item.beta[2]};
+			segment.gamma = {item.gamma[0], item.gamma[1], item.gamma[2]};
+			trajectory.segments[i] = segment;
 		}
-
-		trajectory.timestamp = this->get_clock()->now().nanoseconds() / 1000L;
-
-		request->trajectory = trajectory;
-		request->pos1[0] = target_setpoint.pos.x;
-		request->pos1[1] = target_setpoint.pos.y;
-		request->pos1[2] = target_setpoint.pos.z;
-
-		msp_trajectory_check_client->async_send_request(request, std::bind(&MSPOffboardControllerNode::handleCollisionCheckResult, this, std::placeholders::_1));
+		request->plan = trajectory;
+		msp_trajectory_check_client->async_send_request(request, std::bind(&MSPOffboardControllerNode::handleTrajectoryCheckResult, this, std::placeholders::_1));
 	}
 
-	void handleCollisionCheckResult(rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedFuture future)
+	void handleTrajectoryCheckResult(rclcpp::Client<msp_msgs::srv::TrajectoryCheck>::SharedFuture future)
 	{
-		if (state_ == State::idle)
-			return;
+		
 		auto response = future.get();
 		if (response->reply.status == 0)
 		{
 			state_ = State::idle;
 			this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
 			this->log_message("[msp] Emergency stop. High risk of collision.", MAV_SEVERITY_ALERT);
+			return;
 		}
+		this->log_message("[msp] Trajectory checked and valid", MAV_SEVERITY_INFO);
+		state_ = State::offboard_requested;
 	}
 
 	

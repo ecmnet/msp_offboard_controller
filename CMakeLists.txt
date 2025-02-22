@@ -7,7 +7,7 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic -O2)
+  add_compile_options(-Wall -Wextra -Wpedantic -O3)
 endif()
 
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -26,7 +26,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(glog REQUIRED)
 
-add_library(TrajectoryGenerator      STATIC src/lib/RapidTrajectoryGenerator/RapidTrajectoryGenerator.cpp 
+add_library(TrajectoryGenerator      SHARED src/lib/RapidTrajectoryGenerator/RapidTrajectoryGenerator.cpp 
                                             src/lib/RapidTrajectoryGenerator/SingleAxisTrajectory.cpp
 											src/lib/SegmentTrajectoryGenerator/SegmentedTrajectoryPlanner.cpp
 											src/lib/SegmentTrajectoryGenerator/MSPRapidTrajectoryGenerator.cpp
@@ -38,29 +38,30 @@ target_include_directories(TrajectoryGenerator PUBLIC
 	$<INSTALL_INTERFACE:include/${PROJECT_NAME}>
 )
 
-add_executable(msp_offboard_controller src/msp_offboard_controller.cpp
-                                       
-              )
-ament_target_dependencies(msp_offboard_controller msp_controller rclcpp px4_msgs msp_msgs tf2 tf2_ros glog  )
-
-target_link_libraries(msp_offboard_controller TrajectoryGenerator glog )
-
-ament_export_dependencies(ament_cmake rclcpp rosidl_default_runtime px4_msgs msp_msgs )
-ament_export_include_directories(include)
-ament_export_libraries(TrajectoryGenerator)
-
 install(TARGETS TrajectoryGenerator
-	EXPORT export_TrajectoryGenerator
 	ARCHIVE DESTINATION lib
 	LIBRARY DESTINATION lib
 	RUNTIME DESTINATION bin
-	INCLUDES DESTINATION include
+	#INCLUDES DESTINATION include
 )
 
+add_executable(msp_offboard_controller src/msp_offboard_controller.cpp                                      )
+
+ament_target_dependencies(msp_offboard_controller msp_controller rclcpp px4_msgs msp_msgs tf2 tf2_ros glog )
+
+target_link_libraries(msp_offboard_controller TrajectoryGenerator glog )
+
+#ament_export_dependencies(ament_cmake rclcpp rosidl_default_runtime px4_msgs msp_msgs  )
+
+ament_export_include_directories(include)
+ament_export_libraries(TrajectoryGenerator)
+
+
 install(DIRECTORY include/${PROJECT_NAME}/ DESTINATION include/${PROJECT_NAME})
+#install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
 
 install(TARGETS
-  msp_offboard_controller TrajectoryGenerator
+  msp_offboard_controller 
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

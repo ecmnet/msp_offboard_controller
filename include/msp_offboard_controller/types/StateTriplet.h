@@ -1,6 +1,7 @@
 #pragma once
-#include <types/Vec3.h>
+#include <msp_offboard_controller/types/Vec3.h>
 #include <iostream>
+#include <array>
 
 
 namespace msp {
@@ -19,6 +20,13 @@ StateTriplet(void):pos(),vel(),acc() {};
 StateTriplet(Vec3 p):vel(0,0,0),acc(0,0,0) { pos = p; };
 StateTriplet(Vec3 p, Vec3 v, Vec3 a):pos(p),vel(v),acc(a) {};
 StateTriplet(Vec3 p, Vec3 v, Vec3 a, Vec3 w):pos(p),vel(v),acc(a),yaw(w) {};
+
+StateTriplet(std::array<float, 3> p, std::array<float, 3> v, std::array<float, 3> a) {
+    pos.x = p[0]; pos.y = p[1]; pos.z = p[2];
+    vel.x = v[0]; vel.y = v[1]; vel.z = v[2];
+    acc.x = a[0]; acc.y = a[1]; acc.z = a[2];
+    yaw.setToNaN();
+};
 
 inline void set( StateTriplet t) { pos = t.pos; vel = t.vel; acc = t.acc; yaw = t.yaw; };
 

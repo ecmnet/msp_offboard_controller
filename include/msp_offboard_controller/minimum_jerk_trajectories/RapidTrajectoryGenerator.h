@@ -18,8 +18,8 @@
  */
 
 #pragma once
-#include "minimum_jerk_trajectories/SingleAxisTrajectory.h"
-#include "types/Vec3.h"
+#include "msp_offboard_controller/minimum_jerk_trajectories/SingleAxisTrajectory.h"
+#include "msp_offboard_controller/types/Vec3.h"
 
 namespace minimum_jerk_trajectories
 {

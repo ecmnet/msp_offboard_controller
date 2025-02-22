@@ -1,6 +1,6 @@
 #pragma once
-#include <minimum_jerk_trajectories/RapidTrajectoryGenerator.h>
-#include <types/PlanItem.h>
+#include <msp_offboard_controller/minimum_jerk_trajectories/RapidTrajectoryGenerator.h>
+#include <msp_offboard_controller/types/PlanItem.h>
 
 namespace msp
 {

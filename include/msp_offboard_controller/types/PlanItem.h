@@ -1,5 +1,5 @@
 #pragma once
-#include <types/StateTriplet.h>
+#include <msp_offboard_controller/types/StateTriplet.h>
 #include <rclcpp/rclcpp.hpp>
 #include <iostream>
 

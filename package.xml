@@ -7,6 +7,9 @@
   <maintainer email="ecm@gmx.de">ecm</maintainer>
   <license>TODO: License declaration</license>
 
+  <depend>msp_controller</depend>
+  <depend>TrajectoryGnerator</depend>
+
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <test_depend>ament_lint_auto</test_depend>
@@ -14,5 +17,6 @@
 
   <export>
     <build_type>ament_cmake</build_type>
+    <library path="lib/libTrajectoryGenerator.so"/>
   </export>
 </package>
