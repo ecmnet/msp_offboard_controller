@@ -87,7 +87,10 @@ public:
     return this->is_first;
   };
 
+
 };
+
+
 
 inline std::ostream& operator<<(std::ostream& os, const PlanItem& i) {
     os << "InitialState: " << i.initialState << std::endl;

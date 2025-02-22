@@ -2,6 +2,7 @@
 #include <msp_offboard_controller/msp_offboard_controller.hpp>
 #include <msp_controller/msp_node_base.hpp>
 #include <segment_trajectory_generator/SegmentedTrajectoryPlanner.h>
+#include <segment_trajectory_generator/utils.h>
 #include <rclcpp/rclcpp.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
@@ -10,6 +11,7 @@
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <msp_msgs/msg/trajectory.hpp>
 #include <msp_msgs/srv/trajectory_check.hpp>
+
 // #include <msp_msgs/msg/heartbeat.hpp>
 
 using namespace msp;
@@ -255,27 +257,14 @@ private:
 		auto request = std::make_shared<msp_msgs::srv::TrajectoryCheck::Request>();
 		auto trajectory = msp_msgs::msg::TrajectoryPlan();
 
-        trajectory.count = plan.size();
-		for(int i = 0; i < plan.size(); i++)
-		{
+		int i=0;
+		while(!plan.empty()) {
 			auto item = plan.next();
-			auto segment = msp_msgs::msg::TrajectoryPlanItem();
-		    segment.estimated_time_s = item.estimated_time_s;
-			segment.planning_type = item.planning_type;
-			segment.max_velocity = item.max_velocity;
-			segment.costs = item.costs;
-			segment.is_first = item.is_first;
-			segment.initial_pos = {item.initialState.pos.x, item.initialState.pos.y, item.initialState.pos.z};
-			segment.initial_vel = {item.initialState.vel.x, item.initialState.vel.y, item.initialState.vel.z};
-			segment.initial_acc = {item.initialState.acc.x, item.initialState.acc.y, item.initialState.acc.z};
-			segment.target_pos = {item.targetState.pos.x, item.targetState.pos.y, item.targetState.pos.z};
-			segment.target_vel = {item.targetState.vel.x, item.targetState.vel.y, item.targetState.vel.z};
-			segment.target_acc = {item.targetState.acc.x, item.targetState.acc.y, item.targetState.acc.z};
-			segment.alpha = {item.alpha[0], item.alpha[1], item.alpha[2]};
-			segment.beta  = {item.beta[0], item.beta[1], item.beta[2]};
-			segment.gamma = {item.gamma[0], item.gamma[1], item.gamma[2]};
-			trajectory.segments[i] = segment;
+			if(item.planning_type == msp::PlanItem::TYPE_YAW_ONLY)
+				continue;
+			trajectory.segments[i++] = msp::ros2::convert::toTrajectoryPlanItemMessage(item);
 		}
+		trajectory.count = i;
 		request->plan = trajectory;
 		msp_trajectory_check_client->async_send_request(request, std::bind(&MSPOffboardControllerNode::handleTrajectoryCheckResult, this, std::placeholders::_1));
 	}
@@ -284,15 +273,20 @@ private:
 	{
 		
 		auto response = future.get();
-		if (response->reply.status == 0)
+		switch(response->reply.status)
 		{
-			state_ = State::idle;
-			this->send_px4_vehicle_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 4, 3);
-			this->log_message("[msp] Emergency stop. High risk of collision.", MAV_SEVERITY_ALERT);
-			return;
+			case msp_msgs::msg::TrajectoryCheckAck::STATUS_NO_COLLISION:
+			state_ = State::offboard_requested;
+				break;
+			case msp_msgs::msg::TrajectoryCheckAck::STATUS_EMERGENCY_STOP:
+				this->log_message("[msp] Trajectory collision. Aborted.", MAV_SEVERITY_CRITICAL);
+				state_ = State::idle;
+				break;
+			case msp_msgs::msg::TrajectoryCheckAck::STATUS_REPLANNED:
+				this->log_message("[msp] Trajectory check unknown", MAV_SEVERITY_WARNING);
+				state_ = State::offboard_requested;
+				break;
 		}
-		this->log_message("[msp] Trajectory checked and valid", MAV_SEVERITY_INFO);
-		state_ = State::offboard_requested;
 	}
 
 	
