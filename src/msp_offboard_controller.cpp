@@ -273,6 +273,7 @@ private:
 		}
 		trajectory.count = i;
 		request->plan = trajectory;
+		t1 = std::chrono::high_resolution_clock::now();
 		msp_trajectory_check_client->async_send_request(request, std::bind(&MSPOffboardControllerNode::handleTrajectoryCheckResult, this, std::placeholders::_1));
 	}
 
@@ -294,6 +295,8 @@ private:
 			state_ = State::abort_execution;
 			break;
 		}
+		t2 = std::chrono::high_resolution_clock::now();
+	    std::cout << "Trajectory check: " << std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / 1000000 << "ms\n";
 	}
 
 	rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr local_pos_subscription_;
@@ -312,6 +315,8 @@ private:
 	double elapsed_s = 0;
 	double offset_s = 0;
 	bool initialized = false;
+
+	std::chrono::time_point<std::chrono::high_resolution_clock> t1,t2;
 
 	// Target state
 	StateTriplet target_state;
